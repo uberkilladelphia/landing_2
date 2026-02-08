@@ -490,6 +490,7 @@ function App() {
       className="landing"
       style={{ '--noise-texture': noiseTexture ? `url("${noiseTexture}")` : 'none' }}
     >
+      <div className="flame-glow" aria-hidden="true" />
       <SparkParticles />
       <div className="edge-fx edge-fx-blur" aria-hidden="true">
         <span className="edge-blur edge-blur-left" />

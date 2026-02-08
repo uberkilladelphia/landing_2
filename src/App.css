@@ -57,6 +57,97 @@
   opacity: 0.7;
 }
 
+.flame-glow {
+  position: absolute;
+  left: clamp(-260px, -16vw, -90px);
+  bottom: clamp(-280px, -20vw, -120px);
+  width: clamp(520px, 62vw, 1020px);
+  aspect-ratio: 1.32 / 1;
+  pointer-events: none;
+  z-index: 1;
+  mix-blend-mode: screen;
+  opacity: 0.42;
+}
+
+.flame-glow::before,
+.flame-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+}
+
+.flame-glow::before {
+  background:
+    conic-gradient(
+      from 306deg at 0% 100%,
+      rgba(255, 210, 132, 0.14) 0deg,
+      rgba(255, 152, 56, 0.12) 30deg,
+      rgba(255, 112, 34, 0.09) 58deg,
+      rgba(230, 74, 26, 0.06) 82deg,
+      transparent 126deg
+    ),
+    linear-gradient(
+      56deg,
+      rgba(255, 124, 42, 0.11) 0%,
+      rgba(255, 96, 30, 0.08) 22%,
+      rgba(238, 80, 24, 0.04) 38%,
+      transparent 64%
+    );
+  -webkit-mask-image: radial-gradient(
+    125% 110% at 0% 100%,
+    rgba(0, 0, 0, 0.96) 0%,
+    rgba(0, 0, 0, 0.72) 34%,
+    rgba(0, 0, 0, 0.28) 56%,
+    transparent 82%
+  );
+  mask-image: radial-gradient(
+    125% 110% at 0% 100%,
+    rgba(0, 0, 0, 0.96) 0%,
+    rgba(0, 0, 0, 0.72) 34%,
+    rgba(0, 0, 0, 0.28) 56%,
+    transparent 82%
+  );
+  filter: blur(24px);
+  animation: flame-breathe 7.2s linear infinite;
+}
+
+.flame-glow::after {
+  inset: 8% -2% -8% -8%;
+  background:
+    conic-gradient(
+      from 302deg at 2% 99%,
+      rgba(255, 168, 70, 0.09) 0deg,
+      rgba(255, 126, 40, 0.08) 36deg,
+      rgba(230, 86, 30, 0.04) 74deg,
+      transparent 120deg
+    ),
+    linear-gradient(
+      52deg,
+      rgba(255, 180, 88, 0.06) 0%,
+      rgba(255, 118, 40, 0.05) 20%,
+      rgba(220, 80, 28, 0.02) 36%,
+      transparent 62%
+    );
+  -webkit-mask-image: radial-gradient(
+    132% 118% at 0% 100%,
+    rgba(0, 0, 0, 0.84) 0%,
+    rgba(0, 0, 0, 0.54) 40%,
+    rgba(0, 0, 0, 0.14) 62%,
+    transparent 84%
+  );
+  mask-image: radial-gradient(
+    132% 118% at 0% 100%,
+    rgba(0, 0, 0, 0.84) 0%,
+    rgba(0, 0, 0, 0.54) 40%,
+    rgba(0, 0, 0, 0.14) 62%,
+    transparent 84%
+  );
+  filter: blur(32px);
+  opacity: 0.62;
+  animation: flame-breathe-secondary 9.4s linear infinite;
+}
+
 .edge-fx {
   position: absolute;
   inset: 0;
@@ -590,5 +681,45 @@
   100% {
     background-position: 0 0;
     opacity: 0.08;
+  }
+}
+
+@keyframes flame-breathe {
+  0%,
+  100% {
+    transform: translate3d(-0.8%, 1.1%, 0) scale(0.985);
+    opacity: 0.5;
+  }
+  25% {
+    transform: translate3d(0.9%, -0.8%, 0) scale(1.03);
+    opacity: 0.62;
+  }
+  50% {
+    transform: translate3d(-1.2%, -1.4%, 0) scale(1.065);
+    opacity: 0.66;
+  }
+  75% {
+    transform: translate3d(1.1%, -0.3%, 0) scale(1.02);
+    opacity: 0.58;
+  }
+}
+
+@keyframes flame-breathe-secondary {
+  0%,
+  100% {
+    transform: translate3d(-1.4%, 1%, 0) scale(0.96);
+    opacity: 0.38;
+  }
+  30% {
+    transform: translate3d(1%, -1.2%, 0) scale(1.04);
+    opacity: 0.5;
+  }
+  60% {
+    transform: translate3d(-0.6%, -1.8%, 0) scale(1.08);
+    opacity: 0.56;
+  }
+  80% {
+    transform: translate3d(0.8%, -0.6%, 0) scale(1.01);
+    opacity: 0.45;
   }
 }

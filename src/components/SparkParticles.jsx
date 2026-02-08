@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 
 const MAX_PARTICLES = 360
+const MAX_STREAKS = 92
 const TAU = Math.PI * 2
 const EMBER_SIZE_SCALE = 2.1
 const SOURCE_X_BASE = 0.14
@@ -272,6 +273,30 @@ const createParticle = () => ({
   popAlpha: 0,
 })
 
+const createStreak = () => ({
+  active: false,
+  x: 0,
+  y: 0,
+  vx: 0,
+  vy: 0,
+  age: 0,
+  life: 1,
+  length: 12,
+  width: 1.3,
+  alpha: 0.4,
+  drag: 0.987,
+  flow: 18,
+  riseBoost: 38,
+  rotation: 0,
+  spin: 0,
+  flickerHz: 9,
+  flickerPhase: 0,
+  heat: 0.82,
+  seed: 0,
+  startY: 0,
+  popBoost: 1,
+})
+
 const pickLayerIndex = () => {
   const r = Math.random()
   if (r < LAYERS[0].weight) return 0
@@ -353,9 +378,13 @@ const initEmberSystem = (canvas, options = {}) => {
 
   const noise = new SimplexNoise()
   const particles = Array.from({ length: MAX_PARTICLES }, createParticle)
+  const streaks = Array.from({ length: MAX_STREAKS }, createStreak)
   let nextPoolIndex = 0
+  let nextStreakPoolIndex = 0
   let activeCount = 0
+  let activeStreakCount = 0
   let emitAccumulator = 0
+  let streakAccumulator = 0
 
   const wind = {
     from: 34,
@@ -467,6 +496,60 @@ const initEmberSystem = (canvas, options = {}) => {
     }
   }
 
+  const spawnStreak = (fromBurst = false) => {
+    const maxActive = Math.round((12 + state.intensity * 12) * 1.45)
+    if (activeStreakCount >= maxActive) return
+
+    for (let k = 0; k < streaks.length; k += 1) {
+      const i = (nextStreakPoolIndex + k) % streaks.length
+      const s = streaks[i]
+      if (s.active) continue
+
+      const plumeMeander =
+        noise.noise3D(state.time * 0.055, 28.3, 4.7) * state.width * 0.058 * FLAME_AREA_SCALE
+      const sourceCenterX = state.width * SOURCE_X_BASE + plumeMeander
+      const midTargetX =
+        state.width * TARGET_X_BASE +
+        noise.noise3D(state.time * 0.05, 7.6, 24.9) * state.width * 0.05 * FLAME_AREA_SCALE
+      const progress = Math.pow(Math.random(), 0.8) * 0.76
+      const channelX = mix(sourceCenterX, midTargetX, progress)
+      const lateralSpread = state.width * mix(0.018, 0.09, progress)
+      const verticalSpread = state.height * mix(0.012, 0.04, progress)
+      const sourceX = channelX + randNorm() * lateralSpread
+      const sourceY = state.height * mix(0.95, 0.38, progress) + randNorm() * verticalSpread
+      const popBoost = fromBurst ? random(1.2, 1.75) : 1
+      const speed = random(170, 310) * popBoost
+      const windLean = clamp(wind.value * 0.0018, 0.05, 0.22)
+      const angle = random(-1.07, -0.69) + windLean
+
+      s.active = true
+      s.x = sourceX
+      s.y = sourceY
+      s.vx = Math.cos(angle) * speed
+      s.vy = Math.sin(angle) * speed
+      s.age = 0
+      s.life = random(0.34, 1.05) / popBoost
+      s.length = random(18, 46) * popBoost
+      s.width = random(0.9, 1.95)
+      s.alpha = random(0.24, 0.7)
+      s.drag = random(0.98, 0.991)
+      s.flow = random(14, 26)
+      s.riseBoost = random(34, 76)
+      s.rotation = random(0, TAU)
+      s.spin = random(-1.8, 1.8)
+      s.flickerHz = random(7.5, 12.6)
+      s.flickerPhase = random(0, TAU)
+      s.heat = random(0.72, 1)
+      s.seed = random(0, 1024)
+      s.startY = sourceY
+      s.popBoost = popBoost
+
+      nextStreakPoolIndex = (i + 1) % streaks.length
+      activeStreakCount += 1
+      return
+    }
+  }
+
   const updateWind = (dt) => {
     wind.elapsed += dt
     if (wind.elapsed >= wind.duration) {
@@ -501,6 +584,7 @@ const initEmberSystem = (canvas, options = {}) => {
       burst.accumulator -= 1
       burst.remain -= 1
       spawnParticle(true)
+      if (Math.random() < 0.08) spawnStreak(true)
     }
     if (burst.elapsed >= burst.duration || burst.remain <= 0) {
       burst.active = false
@@ -642,6 +726,47 @@ const initEmberSystem = (canvas, options = {}) => {
     }
   }
 
+  const drawFlashStreak = (s, alpha, speed) => {
+    const speedFactor = clamp(speed / 340, 0.65, 1.45)
+    const flicker =
+      1 +
+      Math.sin(state.time * s.flickerHz * TAU + s.flickerPhase) * 0.11 +
+      noise.noise3D(s.seed * 0.013, state.time * 0.92, 6.4) * 0.08
+    const finalAlpha = clamp(alpha * flicker, 0, 1)
+    if (finalAlpha <= 0.008) return
+
+    const emberRgb = sampleHeatColor(clamp(s.heat, 0, 1))
+    const brightRgb = sampleHeatColor(clamp(s.heat + 0.1, 0, 1))
+    const len = s.length * speedFactor
+    const wid = s.width * mix(1.24, 0.74, s.age / s.life)
+    const r = Math.min(wid * 0.35, 0.9)
+
+    ctx.save()
+    ctx.translate(s.x, s.y)
+    ctx.rotate(Math.atan2(s.vy, s.vx) + s.rotation * 0.12)
+
+    ctx.shadowColor = rgba(emberRgb, finalAlpha * 0.95)
+    ctx.shadowBlur = len * 0.3
+    ctx.fillStyle = rgba(emberRgb, finalAlpha * 0.4)
+    roundedRectPath(ctx, -len * 0.12, 0, len, wid * 1.45, r)
+    ctx.fill()
+    ctx.shadowBlur = 0
+
+    const grad = ctx.createLinearGradient(-len * 0.5, 0, len * 0.45, 0)
+    grad.addColorStop(0, rgba(emberRgb, 0))
+    grad.addColorStop(0.18, rgba(emberRgb, finalAlpha * 0.26))
+    grad.addColorStop(0.62, rgba(brightRgb, finalAlpha * 0.78))
+    grad.addColorStop(1, rgba(brightRgb, finalAlpha))
+    ctx.fillStyle = grad
+    roundedRectPath(ctx, -len * 0.06, 0, len * 0.82, wid, r)
+    ctx.fill()
+
+    ctx.fillStyle = rgba(brightRgb, finalAlpha * 0.95)
+    roundedRectPath(ctx, len * 0.18, 0, len * 0.26, Math.max(0.4, wid * 0.46), r * 0.7)
+    ctx.fill()
+    ctx.restore()
+  }
+
   const step = (ts) => {
     state.raf = window.requestAnimationFrame(step)
     if (!state.running) {
@@ -662,6 +787,13 @@ const initEmberSystem = (canvas, options = {}) => {
     while (emitAccumulator >= 1) {
       emitAccumulator -= 1
       spawnParticle(false)
+    }
+
+    const streakRate = 0.32 * state.intensity
+    streakAccumulator += streakRate * dt
+    if (streakAccumulator >= 1) {
+      streakAccumulator -= 1
+      spawnStreak(false)
     }
 
     ctx.clearRect(0, 0, state.width, state.height)
@@ -771,6 +903,67 @@ const initEmberSystem = (canvas, options = {}) => {
 
       const speed = Math.hypot(p.vx, p.vy)
       drawIrregularEmber(p, alpha, size, speed)
+    }
+
+    for (let i = 0; i < streaks.length; i += 1) {
+      const s = streaks[i]
+      if (!s.active) continue
+
+      s.age += dt
+      if (s.age >= s.life) {
+        s.active = false
+        activeStreakCount -= 1
+        continue
+      }
+
+      const lifeT = s.age / s.life
+      const rise = clamp((s.startY - s.y) / (s.startY - topFadeEnd), 0, 1)
+      const fx = s.x * 0.0021
+      const fy = s.y * 0.0018
+      const ft = state.time * 0.2 + s.seed * 0.002
+      const e = 0.0013
+      const ndy = (noise.noise3D(fx, fy + e, ft) - noise.noise3D(fx, fy - e, ft)) / (2 * e)
+      const ndx = (noise.noise3D(fx + e, fy, ft) - noise.noise3D(fx - e, fy, ft)) / (2 * e)
+      const curlX = ndy
+      const curlY = -ndx
+      const windPush = wind.value * mix(0.26, 0.36, rise)
+      const channelBias = 18 + 16 * rise
+
+      let ax = windPush + channelBias + curlX * s.flow
+      let ay = -s.riseBoost * mix(1.55, 0.7, lifeT) + curlY * s.flow * 0.22
+
+      if (vortex.active) {
+        const dx = s.x - vortex.x
+        const dy = s.y - vortex.y
+        const dist = Math.hypot(dx, dy)
+        if (dist < vortex.radius) {
+          const inf = 1 - dist / vortex.radius
+          const swirl = vortex.strength * inf * 0.8
+          ax += (-dy / (dist || 1)) * swirl
+          ay += (dx / (dist || 1)) * swirl
+        }
+      }
+
+      s.vx += ax * dt
+      s.vy += ay * dt
+      s.vx *= s.drag
+      s.vy *= s.drag * 0.994
+      s.x += s.vx * dt
+      s.y += s.vy * dt
+      s.rotation += s.spin * dt
+
+      if (s.x < -state.width * 0.18 || s.x > state.width * 1.18 || s.y < topFadeEnd - 16) {
+        s.active = false
+        activeStreakCount -= 1
+        continue
+      }
+
+      const topFade = topFadeForY(s.y, topFadeStart, topFadeEnd)
+      const riseFade = 1 - smoothstep(0.69, 0.985, rise)
+      const flash = Math.pow(Math.sin(Math.PI * lifeT), 0.45)
+      const alpha = clamp(s.alpha * flash * topFade * riseFade, 0, 1)
+      const speed = Math.hypot(s.vx, s.vy)
+      drawFlashStreak(s, alpha, speed)
     }
 
     ctx.globalCompositeOperation = 'source-over'
