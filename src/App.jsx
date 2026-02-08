@@ -37,7 +37,9 @@ const placeholderSvg = (label) =>
     </svg>`,
   )}`
 
-const demoPhotoPath = '/profiles/9onAOMikXaE-film.jpg'
+const withBaseUrl = (path) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`
+
+const demoPhotoPath = withBaseUrl('profiles/9onAOMikXaE-film.jpg')
 const demoPhotoPosition = '50% 50%'
 
 const gaussianRandom = () => {
