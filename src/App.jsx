@@ -211,6 +211,9 @@ function App() {
 
   const animateCards = useCallback(
     (duration = 0.9) => {
+      const windowLimit = 2
+      const parkedOffset = 2.85
+
       filteredProfiles.forEach((_, index) => {
         const element = cardRefs.current[index]
         if (!element) return
@@ -222,21 +225,27 @@ function App() {
         const sideY = offset < 0 ? sideDropLeft : sideDropRight
         const tiltY = isActive ? 0 : offset < 0 ? 8 : -8
         const tiltZ = isActive ? 0 : offset < 0 ? -1.2 : 1.2
-        const isInMotionWindow = distance <= 2
+        const wasInWindow = typeof previousOffset === 'number' && Math.abs(previousOffset) <= windowLimit
+        const isInWindow = distance <= windowLimit
 
-        if (!isInMotionWindow) {
-          const parkedX = offset < 0 ? -cardSpacing * 2.6 : cardSpacing * 2.6
+        gsap.killTweensOf(element)
+        gsap.set(element, {
+          xPercent: -50,
+          yPercent: -50,
+          left: '50%',
+          top: `${trackTop}%`,
+          transformPerspective: 1400,
+          force3D: true,
+          autoRound: false,
+        })
+
+        if (!isInWindow && !wasInWindow) {
           gsap.set(element, {
-            xPercent: -50,
-            yPercent: -50,
-            left: '50%',
-            top: `${trackTop}%`,
-            x: parkedX,
+            x: (offset < 0 ? -parkedOffset : parkedOffset) * cardSpacing,
             y: sideY,
-            scale: sideScale,
+            scale: sideScale * 0.98,
             rotationY: tiltY,
             rotationZ: tiltZ,
-            transformPerspective: 1400,
             opacity: 1,
             pointerEvents: 'none',
             zIndex: 1,
@@ -245,36 +254,50 @@ function App() {
           return
         }
 
-        // Keep wrap direction consistent in short filtered carousels:
-        // card should enter from the trailing side instead of crossing full width.
-        if (totalProfiles <= 6 && typeof previousOffset === 'number') {
-          if (carouselDirection > 0 && previousOffset <= -1.5 && offset >= 0.5) {
-            gsap.set(element, { x: cardSpacing * 2.6 })
-          } else if (carouselDirection < 0 && previousOffset >= 1.5 && offset <= -0.5) {
-            gsap.set(element, { x: -cardSpacing * 2.6 })
-          }
-        }
+        const targetX = (isInWindow ? offset : offset < 0 ? -parkedOffset : parkedOffset) * cardSpacing
+        const targetY = isActive ? activeRise : sideY + (isInWindow ? 0 : offset < 0 ? 6 : 4)
+        const targetScale = isActive ? 1.14 : isInWindow ? sideScale : sideScale * 0.98
+        const targetZIndex = isActive ? 120 : isInWindow ? 100 - distance * 12 : 2
+        const wrappedAcrossTrack =
+          typeof previousOffset === 'number' && Math.abs(offset - previousOffset) > windowLimit + 0.2
 
-        gsap.to(element, {
+        const tweenVars = {
           duration,
-          xPercent: -50,
-          yPercent: -50,
-          left: '50%',
-          top: `${trackTop}%`,
-          x: offset * cardSpacing,
-          y: isActive ? activeRise : sideY,
-          scale: isActive ? 1.14 : sideScale,
+          x: targetX,
+          y: targetY,
+          scale: targetScale,
           rotationY: tiltY,
           rotationZ: tiltZ,
-          transformPerspective: 1400,
           opacity: 1,
           pointerEvents: isActive ? 'auto' : 'none',
-          zIndex: 100 - distance * 12,
-          ease: 'power2.inOut',
-          overwrite: 'auto',
+          zIndex: targetZIndex,
+          ease: 'power3.out',
+          overwrite: true,
           force3D: true,
           autoRound: false,
-        })
+        }
+
+        if (duration === 0 || typeof previousOffset !== 'number') {
+          gsap.set(element, tweenVars)
+          previousOffsetsRef.current.set(index, offset)
+          return
+        }
+
+        if (wrappedAcrossTrack) {
+          const entryDirection = carouselDirection > 0 ? 1 : -1
+          gsap.set(element, {
+            x: entryDirection * (parkedOffset + 0.24) * cardSpacing,
+            y: targetY,
+            scale: targetScale,
+            rotationY: tiltY,
+            rotationZ: tiltZ,
+            opacity: 1,
+            pointerEvents: 'none',
+            zIndex: targetZIndex,
+          })
+        }
+
+        gsap.to(element, tweenVars)
 
         previousOffsetsRef.current.set(index, offset)
       })
@@ -379,7 +402,7 @@ function App() {
     }
   }, [])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (isDetailOpen) return
     animateCards()
   }, [activeIndex, animateCards, isDetailOpen, viewportWidth])
