@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { gsap } from 'gsap'
 import { profiles as sourceProfiles } from './data/profiles'
 import SparkParticles from './components/SparkParticles'
@@ -7,8 +7,11 @@ import './App.css'
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 const wrapIndex = (value, length) => (value + length) % length
 
-const circularOffset = (index, activeIndex, total) => {
+const circularOffset = (index, activeIndex, total, direction = 1) => {
   let delta = index - activeIndex
+  if (total % 2 === 0 && Math.abs(delta) === total / 2) {
+    return direction >= 0 ? -Math.abs(delta) : Math.abs(delta)
+  }
   if (delta > total / 2) delta -= total
   if (delta < -total / 2) delta += total
   return delta
@@ -41,6 +44,35 @@ const withBaseUrl = (path) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/,
 
 const demoPhotoPath = withBaseUrl('profiles/9onAOMikXaE-film.jpg')
 const demoPhotoPosition = '50% 50%'
+const backgroundPhotoPrimary = withBaseUrl('profiles/landscape-bg.webp')
+const backgroundPhotoFallback = withBaseUrl('profiles/9onAOMikXaE.jpg')
+
+const GROUP_OPTIONS = [
+  { id: 'all', label: 'Все' },
+  { id: 'cfo', label: 'ЦФО' },
+  { id: 'szfo', label: 'СЗФО' },
+  { id: 'yufo', label: 'ЮФО' },
+  { id: 'skfo', label: 'СКФО' },
+  { id: 'pfo', label: 'ПФО' },
+  { id: 'ufo', label: 'УФО' },
+  { id: 'sfo', label: 'СФО' },
+  { id: 'dfo', label: 'ДФО' },
+]
+
+const PROFILE_GROUP_BY_ID = {
+  1: 'cfo',
+  2: 'szfo',
+  3: 'pfo',
+  4: 'ufo',
+  5: 'sfo',
+  6: 'dfo',
+  7: 'yufo',
+  8: 'skfo',
+  9: 'pfo',
+  10: 'cfo',
+  11: 'sfo',
+  12: 'yufo',
+}
 
 const gaussianRandom = () => {
   let u = 0
@@ -50,16 +82,28 @@ const gaussianRandom = () => {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
 }
 
-const buildGaussianNoiseTexture = (size = 192) => {
+const getNoiseTextureSize = () => {
+  if (typeof window === 'undefined') {
+    return { width: 900, height: 560 }
+  }
+
+  const dpr = Math.min(window.devicePixelRatio || 1, 1)
+  return {
+    width: clamp(Math.round(window.innerWidth * dpr * 0.72), 540, 1100),
+    height: clamp(Math.round(window.innerHeight * dpr * 0.72), 360, 760),
+  }
+}
+
+const buildGaussianNoiseTexture = (width = 320, height = 320) => {
   if (typeof document === 'undefined') return ''
 
   const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
+  canvas.width = width
+  canvas.height = height
   const context = canvas.getContext('2d')
   if (!context) return ''
 
-  const imageData = context.createImageData(size, size)
+  const imageData = context.createImageData(width, height)
   const { data } = imageData
 
   for (let i = 0; i < data.length; i += 4) {
@@ -81,22 +125,49 @@ function App() {
     () =>
       sourceProfiles.map((profile) => ({
         ...profile,
+        group: PROFILE_GROUP_BY_ID[profile.id] ?? 'cfo',
         photo: demoPhotoPath,
         photoPosition: demoPhotoPosition,
         placeholder: placeholderSvg(profile.name),
       })),
     [],
   )
-  const noiseTexture = useMemo(() => buildGaussianNoiseTexture(220), [])
 
-  const totalProfiles = profiles.length
+  const [activeGroup, setActiveGroup] = useState('all')
+  const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
+  const [carouselDirection, setCarouselDirection] = useState(1)
   const [zoomScale, setZoomScale] = useState(1)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [detailIndex, setDetailIndex] = useState(0)
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
   const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight)
   const [imageErrorMap, setImageErrorMap] = useState({})
+
+  const filteredProfiles = useMemo(
+    () => (activeGroup === 'all' ? profiles : profiles.filter((profile) => profile.group === activeGroup)),
+    [activeGroup, profiles],
+  )
+  const totalProfiles = filteredProfiles.length
+
+  const groupCounts = useMemo(() => {
+    const counts = { all: profiles.length }
+    profiles.forEach((profile) => {
+      counts[profile.group] = (counts[profile.group] || 0) + 1
+    })
+    return counts
+  }, [profiles])
+
+  const noiseTextureA = useMemo(() => {
+    const { width, height } = getNoiseTextureSize()
+    return buildGaussianNoiseTexture(width, height)
+  }, [])
+  const noiseTextureB = useMemo(() => {
+    const { width, height } = getNoiseTextureSize()
+    return buildGaussianNoiseTexture(width, height)
+  }, [])
+  const safeActiveIndex = totalProfiles ? clamp(activeIndex, 0, totalProfiles - 1) : 0
+  const safeDetailIndex = totalProfiles ? clamp(detailIndex, 0, totalProfiles - 1) : 0
 
   const cardRefs = useRef([])
   const openRectRef = useRef(null)
@@ -114,6 +185,8 @@ function App() {
   const detailPhotoRef = useRef(null)
   const detailPhotoShellRef = useRef(null)
   const detailTextRef = useRef(null)
+  const filterMenuRef = useRef(null)
+  const previousOffsetsRef = useRef(new Map())
   const initializedRef = useRef(false)
 
   const cardWidthReference = clamp(viewportWidth * 0.3, 260, 500)
@@ -127,7 +200,9 @@ function App() {
 
   const shiftCarousel = useCallback(
     (direction) => {
+      if (totalProfiles <= 1) return
       if (isDetailOpen) return
+      setCarouselDirection(direction >= 0 ? 1 : -1)
       setZoomScale(1)
       setActiveIndex((index) => wrapIndex(index + direction, totalProfiles))
     },
@@ -136,12 +211,12 @@ function App() {
 
   const animateCards = useCallback(
     (duration = 0.9) => {
-      profiles.forEach((_, index) => {
+      filteredProfiles.forEach((_, index) => {
         const element = cardRefs.current[index]
         if (!element) return
 
-        const media = element.querySelector('.card-media')
-        const offset = circularOffset(index, activeIndex, totalProfiles)
+        const previousOffset = previousOffsetsRef.current.get(index)
+        const offset = circularOffset(index, safeActiveIndex, totalProfiles, carouselDirection)
         const distance = Math.abs(offset)
         const isActive = offset === 0
         const sideY = offset < 0 ? sideDropLeft : sideDropRight
@@ -166,11 +241,18 @@ function App() {
             pointerEvents: 'none',
             zIndex: 1,
           })
-
-          if (media) {
-            gsap.set(media, { filter: 'blur(0px) brightness(0.8)' })
-          }
+          previousOffsetsRef.current.set(index, offset)
           return
+        }
+
+        // Keep wrap direction consistent in short filtered carousels:
+        // card should enter from the trailing side instead of crossing full width.
+        if (totalProfiles <= 6 && typeof previousOffset === 'number') {
+          if (carouselDirection > 0 && previousOffset <= -1.5 && offset >= 0.5) {
+            gsap.set(element, { x: cardSpacing * 2.6 })
+          } else if (carouselDirection < 0 && previousOffset >= 1.5 && offset <= -0.5) {
+            gsap.set(element, { x: -cardSpacing * 2.6 })
+          }
         }
 
         gsap.to(element, {
@@ -189,24 +271,20 @@ function App() {
           pointerEvents: isActive ? 'auto' : 'none',
           zIndex: 100 - distance * 12,
           ease: 'power2.inOut',
+          overwrite: 'auto',
+          force3D: true,
+          autoRound: false,
         })
 
-        if (media) {
-          gsap.to(media, {
-            duration,
-            filter: isActive
-              ? 'blur(0px) brightness(1)'
-              : 'blur(0px) brightness(0.8)',
-            ease: 'power2.inOut',
-          })
-        }
+        previousOffsetsRef.current.set(index, offset)
       })
     },
     [
-      activeIndex,
       activeRise,
       cardSpacing,
-      profiles,
+      carouselDirection,
+      filteredProfiles,
+      safeActiveIndex,
       sideDropLeft,
       sideDropRight,
       sideScale,
@@ -216,21 +294,21 @@ function App() {
   )
 
   const openDetail = useCallback(() => {
-    if (isDetailOpen) return
-    const activeCard = cardRefs.current[activeIndex]
+    if (!totalProfiles || isDetailOpen) return
+    const activeCard = cardRefs.current[safeActiveIndex]
     const sourcePhoto = activeCard?.querySelector('.card-media')
     if (!sourcePhoto) return
     openRectRef.current = sourcePhoto.getBoundingClientRect()
-    setDetailIndex(activeIndex)
+    setDetailIndex(safeActiveIndex)
     setIsDetailOpen(true)
-  }, [activeIndex, isDetailOpen])
+  }, [isDetailOpen, safeActiveIndex, totalProfiles])
 
   const closeDetail = useCallback(() => {
     if (!isDetailOpen) return
     const detailPhoto = detailPhotoRef.current
     const detailPhotoShell = detailPhotoShellRef.current
     const detailText = detailTextRef.current
-    const destination = cardRefs.current[activeIndex]?.querySelector('.card-media')
+    const destination = cardRefs.current[safeActiveIndex]?.querySelector('.card-media')
     const destinationRect = destination?.getBoundingClientRect()
     const shellRect = detailPhotoShell?.getBoundingClientRect()
 
@@ -274,7 +352,7 @@ function App() {
         0,
       )
     }
-  }, [activeIndex, isDetailOpen])
+  }, [isDetailOpen, safeActiveIndex])
 
   useEffect(() => {
     const onResize = () => {
@@ -319,8 +397,6 @@ function App() {
     const detailText = detailTextRef.current
     if (!detailLayer || !detailPhotoShell || !detailText) return
 
-    // Close animation leaves transforms on the shell; reset them so each open
-    // starts from the true layout position and animates consistently.
     gsap.set(detailPhotoShell, {
       clearProps: 'x,y,scaleX,scaleY,rotation,rotationX,rotationY,opacity',
     })
@@ -483,13 +559,41 @@ function App() {
     touchRef.current.startTarget = null
   }
 
-  const detailProfile = profiles[detailIndex]
+  const detailProfile = filteredProfiles[safeDetailIndex]
+  const activeGroupLabel =
+    GROUP_OPTIONS.find((group) => group.id === activeGroup)?.label ?? GROUP_OPTIONS[0].label
+
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      if (!isFilterMenuOpen) return
+      if (filterMenuRef.current && !filterMenuRef.current.contains(event.target)) {
+        setIsFilterMenuOpen(false)
+      }
+    }
+
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') setIsFilterMenuOpen(false)
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown)
+    window.addEventListener('keydown', handleEscape)
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [isFilterMenuOpen])
 
   return (
     <main
       className="landing"
-      style={{ '--noise-texture': noiseTexture ? `url("${noiseTexture}")` : 'none' }}
+      style={{
+        '--noise-texture-a': noiseTextureA ? `url("${noiseTextureA}")` : 'none',
+        '--noise-texture-b': noiseTextureB ? `url("${noiseTextureB}")` : 'none',
+        '--bg-photo-primary': `url("${backgroundPhotoPrimary}")`,
+        '--bg-photo-fallback': `url("${backgroundPhotoFallback}")`,
+      }}
     >
+      <div className="bg-photo" aria-hidden="true" />
       <div className="flame-glow" aria-hidden="true" />
       <SparkParticles />
       <div className="edge-fx edge-fx-blur" aria-hidden="true">
@@ -501,8 +605,56 @@ function App() {
 
       <section className="carousel-shell">
         <header className="top-bar">
-          <p className="kicker">Кинетическая карусель профилей</p>
-          <h1 className="main-title">Студенты и исследователи</h1>
+          <h1 className="main-title">Студенты-участники СВО</h1>
+          <div ref={filterMenuRef} className="filter-dropdown">
+            <button
+              type="button"
+              className="filter-trigger"
+              aria-haspopup="listbox"
+              aria-expanded={isFilterMenuOpen}
+              onClick={() => setIsFilterMenuOpen((value) => !value)}
+            >
+              <span className="filter-trigger-label">Федеральный округ</span>
+              <span className="filter-trigger-value">{activeGroupLabel}</span>
+              <span className={`filter-trigger-arrow ${isFilterMenuOpen ? 'is-open' : ''}`}>⌄</span>
+            </button>
+
+            <div
+              className={`filter-menu ${isFilterMenuOpen ? 'is-open' : ''}`}
+              role="listbox"
+              aria-label="Фильтры по федеральным округам"
+            >
+              <div className="group-strip">
+                {GROUP_OPTIONS.map((group) => (
+                  <button
+                    key={group.id}
+                    type="button"
+                    role="option"
+                    aria-selected={group.id === activeGroup}
+                    className={`group-chip ${group.id === activeGroup ? 'is-active' : ''}`}
+                    onClick={() => {
+                      if (group.id === activeGroup) {
+                        setIsFilterMenuOpen(false)
+                        return
+                      }
+                      cardRefs.current = []
+                      previousOffsetsRef.current.clear()
+                      setIsDetailOpen(false)
+                      setZoomScale(1)
+                      setCarouselDirection(1)
+                      setActiveIndex(0)
+                      setDetailIndex(0)
+                      setActiveGroup(group.id)
+                      setIsFilterMenuOpen(false)
+                    }}
+                  >
+                    {group.label}
+                    <span className="group-chip-count">{groupCounts[group.id] ?? 0}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </header>
 
         <div
@@ -515,8 +667,8 @@ function App() {
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
         >
-          {profiles.map((profile, index) => {
-            const isActive = index === activeIndex
+          {filteredProfiles.map((profile, index) => {
+            const isActive = index === safeActiveIndex
             return (
               <article
                 key={profile.id}
@@ -528,13 +680,13 @@ function App() {
                 <div className="card-media">
                   <img
                     className="card-photo"
-                    src={imageErrorMap[index] ? profile.placeholder : profile.photo}
+                    src={imageErrorMap[profile.id] ? profile.placeholder : profile.photo}
                     alt={profile.name}
                     style={{
                       '--zoom': isActive ? zoomScale : 1,
                       objectPosition: profile.photoPosition,
                     }}
-                    onError={() => setImageErrorMap((map) => ({ ...map, [index]: true }))}
+                    onError={() => setImageErrorMap((map) => ({ ...map, [profile.id]: true }))}
                   />
                 </div>
                 <div className="card-meta">
@@ -547,17 +699,22 @@ function App() {
         </div>
 
         <footer className="controls">
-          <div className="azimuth" role="tablist" aria-label="Индикатор активного профиля">
-            {profiles.map((profile, index) => (
+          <div className="azimuth" role="tablist" aria-label="Active profile indicator">
+            {filteredProfiles.map((profile, index) => (
               <button
                 key={profile.id}
                 type="button"
                 role="tab"
-                className={`azimuth-bar ${index === activeIndex ? 'is-active' : ''}`}
-                aria-selected={index === activeIndex}
-                aria-label={`Профиль ${index + 1}`}
+                className={`azimuth-bar ${index === safeActiveIndex ? 'is-active' : ''}`}
+                aria-selected={index === safeActiveIndex}
+                aria-label={`Profile ${index + 1}`}
                 onClick={() => {
                   if (isDetailOpen) return
+                  const forward =
+                    (index - safeActiveIndex + totalProfiles) % (totalProfiles || 1)
+                  const backward =
+                    (safeActiveIndex - index + totalProfiles) % (totalProfiles || 1)
+                  setCarouselDirection(forward <= backward ? 1 : -1)
                   setZoomScale(1)
                   setActiveIndex(index)
                 }}
@@ -568,7 +725,7 @@ function App() {
             <button
               type="button"
               className="nav-arrow"
-              aria-label="Предыдущий профиль"
+              aria-label="Previous profile"
               onClick={() => shiftCarousel(-1)}
               disabled={isDetailOpen}
             >
@@ -577,7 +734,7 @@ function App() {
             <button
               type="button"
               className="nav-arrow"
-              aria-label="Следующий профиль"
+              aria-label="Next profile"
               onClick={() => shiftCarousel(1)}
               disabled={isDetailOpen}
             >
@@ -593,7 +750,7 @@ function App() {
         aria-hidden={!isDetailOpen}
       >
         <button className="close-detail" type="button" onClick={closeDetail}>
-          Закрыть
+          Close
         </button>
         {detailProfile && (
           <div className="detail-inner">
@@ -602,10 +759,10 @@ function App() {
                 <img
                   ref={detailPhotoRef}
                   className="detail-photo"
-                  src={imageErrorMap[detailIndex] ? detailProfile.placeholder : detailProfile.photo}
+                  src={imageErrorMap[detailProfile.id] ? detailProfile.placeholder : detailProfile.photo}
                   alt={detailProfile.name}
                   style={{ objectPosition: detailProfile.photoPosition }}
-                  onError={() => setImageErrorMap((map) => ({ ...map, [detailIndex]: true }))}
+                  onError={() => setImageErrorMap((map) => ({ ...map, [detailProfile.id]: true }))}
                 />
               </div>
             </div>
