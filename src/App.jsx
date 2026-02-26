@@ -46,6 +46,24 @@ const demoPhotoPath = withBaseUrl('profiles/9onAOMikXaE-film.jpg')
 const demoPhotoPosition = '50% 50%'
 const backgroundPhotoPrimary = withBaseUrl('profiles/landscape-bg.webp')
 const backgroundPhotoFallback = withBaseUrl('profiles/9onAOMikXaE.jpg')
+const cardPhotoVariants = [
+  {
+    photo: demoPhotoPath,
+    photoPosition: demoPhotoPosition,
+  },
+  {
+    photo: withBaseUrl('profiles/svo-portrait-1.jpg'),
+    photoPosition: '42% 44%',
+  },
+  {
+    photo: withBaseUrl('profiles/svo-portrait-2.jpg'),
+    photoPosition: '50% 34%',
+  },
+  {
+    photo: withBaseUrl('profiles/svo-portrait-3.jpg'),
+    photoPosition: '56% 42%',
+  },
+]
 
 const GROUP_OPTIONS = [
   { id: 'all', label: 'Все' },
@@ -123,13 +141,16 @@ const buildGaussianNoiseTexture = (width = 320, height = 320) => {
 function App() {
   const profiles = useMemo(
     () =>
-      sourceProfiles.map((profile) => ({
-        ...profile,
-        group: PROFILE_GROUP_BY_ID[profile.id] ?? 'cfo',
-        photo: demoPhotoPath,
-        photoPosition: demoPhotoPosition,
-        placeholder: placeholderSvg(profile.name),
-      })),
+      sourceProfiles.map((profile) => {
+        const photoVariant = cardPhotoVariants[(profile.id - 1) % cardPhotoVariants.length]
+        return {
+          ...profile,
+          group: PROFILE_GROUP_BY_ID[profile.id] ?? 'cfo',
+          photo: photoVariant.photo,
+          photoPosition: photoVariant.photoPosition,
+          placeholder: placeholderSvg(profile.name),
+        }
+      }),
     [],
   )
 
